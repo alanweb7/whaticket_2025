@@ -87,43 +87,49 @@ const FlowBuilderTicketModal = ({
                 console.log("✅ Filas carregadas:", queuesData);
                 console.log("✅ Usuários carregados:", usersData);
 
-                // Define no state ANTES de continuar
+                // Atualiza estados
                 setQueues(queuesData);
                 setAgents(usersData);
 
-                // Aguarda o React aplicar o estado antes de prosseguir
-                await new Promise(resolve => setTimeout(resolve, 0));
-
-                if (open === "edit") {
+                // Seleção inicial no modo edição
+                if (open === "edit" && data) {
                     console.log("✏️ Editando... Dados recebidos:", data);
 
-                    // 🟦 Localiza a fila correta
+                    // encontra a fila, cobrindo ambos os formatos possíveis em `data`
                     const queue = queuesData.find(
-                        item => item.id === data?.queue?.id || item.id === data?.data?.id
+                        item =>
+                            item.id === Number(data?.queue?.id) ||
+                            item.id === Number(data?.data?.id) ||
+                            item.id === Number(data?.id)
                     );
 
                     if (queue) {
                         console.log("🟢 Fila encontrada:", queue.name);
-                        setQueueSelected(queue.id);
+                        setQueueSelected(queue.id); // guardamos o ID (number)
                     } else {
-                        console.warn("⚠️ Nenhuma fila encontrada com esse ID:", data?.queue?.id);
+                        console.warn("⚠️ Nenhuma fila encontrada com esse ID:", data);
                     }
 
-                    // 🟩 Localiza o atendente salvo
-                    const savedAgentId = data?.user?.id || null;
+                    // 🟩 Atendente salvo (cobre data.user e data.data.user)
+                    const savedAgentId =
+                        Number(data?.user?.id) ||
+                        Number(data?.data?.user?.id) ||
+                        Number(data?.agent?.id) ||
+                        null;
+
                     if (savedAgentId) {
-                        const agentExists = usersData.some(a => a.id === savedAgentId);
+                        // verifica usando usersData (que já veio da API)
+                        const agentExists = usersData.some(a => Number(a.id) === savedAgentId);
                         if (agentExists) {
-                            console.log("👤 Atendente encontrado:", savedAgentId);
+                            console.log("👤 Atendente encontrado nos dados da API:", savedAgentId);
                             setSelectedAgent(savedAgentId);
                         } else {
-                            console.warn("⚠️ Atendente não encontrado na lista:", savedAgentId);
+                            console.warn("⚠️ Atendente não encontrado na lista retornada:", savedAgentId);
                         }
                     }
                 }
 
-
-                // Ativa o modal apenas quando tudo estiver pronto
+                // Ativa modal
                 setActiveModal(true);
 
             } catch (error) {
@@ -138,7 +144,7 @@ const FlowBuilderTicketModal = ({
         return () => {
             isMounted.current = false;
         };
-    }, [open]);
+    }, [open, data]);
 
 
 
@@ -149,34 +155,36 @@ const FlowBuilderTicketModal = ({
     };
 
 
+    // Salvamento com hierarquia correta: data: { ...queueWithUser }
     const handleSaveContact = () => {
         if (!selectedQueue) {
-            return toast.error("Adicione uma fila");
+            return toast.error('Adicione uma fila');
         }
 
-        // Obtém a fila e o agente selecionados
-        const queue = queues.find(item => item.id === selectedQueue);
-        const agent = agents.find(a => a.id === selectedAgent);
+        // garantir tipos
+        const queueIdNum = Number(selectedQueue);
+        const userIdNum = selectedAgent ? Number(selectedAgent) : null;
+
+        const queue = queues.find(item => Number(item.id) === queueIdNum);
+        const user = agents.find(a => Number(a.id) === userIdNum);
 
         if (!queue) {
-            return toast.error("Fila inválida");
+            return toast.error('Fila inválida');
         }
 
-        // Monta o payload final
-        const payload = {
-            queue: queue,
-            user: agent || null, // 👈 aqui vai o user (atendente)
+        // Cria um novo objeto incluindo o user (mantendo o formato que vinha no JSON original)
+        const queueWithUser = {
+            ...queue,
+            user: user || null
         };
 
-        console.log("💾 Salvando dados:", payload);
-
-        if (open === "edit") {
+        if (open === 'edit') {
             onUpdate({
                 ...data,
-                ...payload
+                data: { ...queueWithUser } // sem criar outro nível de data
             });
-        } else if (open === "create") {
-            onSave(payload);
+        } else if (open === 'create') {
+            onSave({ ...queueWithUser }); // sem encapsular em "data"
         }
 
         handleClose();
@@ -196,15 +204,17 @@ const FlowBuilderTicketModal = ({
                         <Select
                             labelId="queue-label"
                             id="queue-select"
-                            value={selectedQueue || ""}
+                            value={selectedQueue ?? ""} // guardamos number ou undefined
                             style={{ width: "95%", marginBottom: 20 }}
                             onChange={(e) => {
-                                setQueueSelected(e.target.value);
+                                // garantir number
+                                const val = Number(e.target.value);
+                                setQueueSelected(val);
                                 setSelectedAgent(""); // limpa o atendente ao trocar de fila
                             }}
                             renderValue={() => {
-                                if (!selectedQueue) return "Selecione uma Fila";
-                                const queue = queues.find(w => w.id === selectedQueue);
+                                if (selectedQueue === undefined || selectedQueue === "") return "Selecione uma Fila";
+                                const queue = queues.find(w => Number(w.id) === Number(selectedQueue));
                                 return queue ? queue.name : "";
                             }}
                         >
@@ -220,19 +230,21 @@ const FlowBuilderTicketModal = ({
                         <Select
                             labelId="agent-label"
                             id="agent-select"
-                            value={selectedAgent || ""}
+                            value={selectedAgent ?? ""}
                             style={{ width: "95%" }}
                             disabled={!selectedQueue}
-                            onChange={(e) => setSelectedAgent(e.target.value)}
+                            onChange={(e) => {
+                                const val = e.target.value === "" ? "" : Number(e.target.value);
+                                setSelectedAgent(val);
+                            }}
                             renderValue={() => {
                                 if (!selectedAgent) return "Selecione um Atendente (opcional)";
-                                const agent = agents.find(a => a.id === selectedAgent);
+                                const agent = agents.find(a => Number(a.id) === Number(selectedAgent));
                                 return agent ? agent.name : "";
                             }}
                         >
                             {agents
-                                // 🔍 Filtro correto: verifica se o agente está vinculado à fila
-                                .filter(a => a.queues?.some(q => q.id === selectedQueue))
+                                .filter(a => a.queues?.some(q => Number(q.id) === Number(selectedQueue)))
                                 .map(agent => (
                                     <MenuItem key={agent.id} value={agent.id}>
                                         {agent.name}
@@ -248,6 +260,7 @@ const FlowBuilderTicketModal = ({
                                     </MenuItem>
                                 ))}
                         </Select>
+
 
                     </DialogContent>
 
